@@ -3,9 +3,11 @@ import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig } from "vite";
 
 const reactRouterPlugins = reactRouter as unknown as () => any[];
+
 const agentNativePlugins = agentNative as unknown as (
   options?: Parameters<typeof agentNative>[0],
 ) => any[];
+
 export default defineConfig({
   optimizeDeps: {
     entries: [
@@ -16,13 +18,16 @@ export default defineConfig({
       "app/routes/{home,chat.$threadId}.tsx",
     ],
   },
+
   plugins: [
     ...reactRouterPlugins(),
+
     ...agentNativePlugins({
       ssrStubs: ["shiki"],
+
       nitro: {
-  preset: "vercel",
-        }
+        preset: "vercel",
+      },
     }),
   ],
 });
