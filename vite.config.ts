@@ -20,6 +20,9 @@ export default defineConfig({
     ...reactRouterPlugins(),
     ...agentNativePlugins({
       ssrStubs: ["shiki"],
+      nitro: {
+  preset: "vercel",
+        }
     }),
   ],
 });
