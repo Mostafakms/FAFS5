@@ -1,0 +1,1 @@
+DROP INDEX "one_site_manager";
