@@ -134,6 +134,10 @@ const navItems = [
   { label: "Progress history", icon: IconClock },
 ];
 
+const MAP_ZOOM_MIN = 100;
+const MAP_ZOOM_MAX = 900;
+const MAP_ZOOM_STEP = 5;
+
 const pct = (value: number) => `${value.toFixed(1)}%`;
 const isRemoved = (building: Building) =>
   building.manualStatus === "Removed from scope";
@@ -194,9 +198,10 @@ export default function HomeRoute() {
   const [mapFeedback, setMapFeedback] = useState("");
   const [mapUploading, setMapUploading] = useState(false);
   const [selectedMapBuildingId, setSelectedMapBuildingId] = useState("");
+  const [mapBuildingSearch, setMapBuildingSearch] = useState("");
   const [mapDrawing, setMapDrawing] = useState(false);
   const [draftPolygon, setDraftPolygon] = useState<MapPoint[]>([]);
-  const [mapZoom, setMapZoom] = useState(100);
+  const [mapZoom, setMapZoom] = useState(MAP_ZOOM_MIN);
   const [mapPanMode, setMapPanMode] = useState(false);
   const [mapDragging, setMapDragging] = useState(false);
   const [mapFullscreen, setMapFullscreen] = useState(false);
@@ -220,8 +225,11 @@ export default function HomeRoute() {
     if (!viewport || view !== "Site map") return;
     const zoomWithWheel = (event: WheelEvent) => {
       const nextZoom = Math.min(
-        600,
-        Math.max(100, mapZoom + (event.deltaY < 0 ? 25 : -25)),
+        MAP_ZOOM_MAX,
+        Math.max(
+          MAP_ZOOM_MIN,
+          mapZoom + (event.deltaY < 0 ? MAP_ZOOM_STEP : -MAP_ZOOM_STEP),
+        ),
       );
       if (nextZoom === mapZoom) return;
       event.preventDefault();
@@ -359,12 +367,14 @@ export default function HomeRoute() {
   const data = dashboard.data;
   useEffect(() => {
     let active = true;
-    fetch("/setup-status", { credentials: "include" })
-      .then((response) => {
-        if (!response.ok) throw new Error();
-        return response.json();
-      })
-      .then((result: { needsSetup?: unknown }) => {
+    
+        fetch("/setup-status", { credentials: "include" })
+              .then((response) => {
+                        if (!response.ok) throw new Error();
+                                return response.json();      })
+                                      .then((result: { needsSetup?: unknown }) => {
+
+    
         if (!active || typeof result.needsSetup !== "boolean") return;
         setBootstrapStatus(result.needsSetup ? "setup" : "ready");
       })
@@ -383,6 +393,13 @@ export default function HomeRoute() {
   const selectedMapBuilding =
     data?.buildings.find((building) => building.id === selectedMapBuildingId) ??
     null;
+  const mapBuildingSearchResults = useMemo(() => {
+    const query = mapBuildingSearch.trim().toLowerCase();
+    if (!query) return [];
+    return (data?.buildings ?? [])
+      .filter((building) => building.name.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [data?.buildings, mapBuildingSearch]);
   const filtered = useMemo(
     () =>
       (data?.buildings ?? []).filter((building) =>
@@ -730,9 +747,11 @@ export default function HomeRoute() {
   async function retrySetupStatus() {
     setBootstrapStatus("loading");
     try {
-      const response = await fetch("/setup-status", { credentials: "include" });
-      if (!response.ok) throw new Error();
-      const result: { needsSetup?: unknown } = await response.json();
+      const result = await callAction(
+        "get-initial-setup-status",
+        {},
+        { method: "GET" },
+      );
       if (typeof result.needsSetup !== "boolean") throw new Error();
       setBootstrapStatus(result.needsSetup ? "setup" : "ready");
     } catch {
@@ -1545,6 +1564,56 @@ export default function HomeRoute() {
                       <div
                         className={`mt-4 flex flex-wrap items-center gap-3 ${mapFullscreen ? "hidden" : ""}`}
                       >
+                        <div className="relative">
+                          <label className="text-[11px] font-semibold text-slate-600">
+                            Search building name
+                            <input
+                              type="search"
+                              value={mapBuildingSearch}
+                              onChange={(event) =>
+                                setMapBuildingSearch(event.target.value)
+                              }
+                              placeholder="Type a building name…"
+                              className="ml-2 h-9 w-52 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-slate-400"
+                            />
+                          </label>
+                          {mapBuildingSearch.trim() && (
+                            <div
+                              className="absolute left-0 top-full z-40 mt-1 max-h-60 w-64 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-lg"
+                              role="listbox"
+                              aria-label="Building search results"
+                            >
+                              {mapBuildingSearchResults.length ? (
+                                mapBuildingSearchResults.map((building) => (
+                                  <button
+                                    key={building.id}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={
+                                      selectedMapBuildingId === building.id
+                                    }
+                                    onClick={() => {
+                                      selectMapBuilding(building.id);
+                                      setMapBuildingSearch("");
+                                    }}
+                                    className="block w-full rounded-md px-2.5 py-2 text-left text-xs text-slate-700 hover:bg-slate-100"
+                                  >
+                                    <span className="font-semibold">
+                                      {building.name}
+                                    </span>
+                                    <span className="ml-2 text-slate-400">
+                                      {building.buildingNumber}
+                                    </span>
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="px-2.5 py-2 text-xs text-slate-500">
+                                  No matching buildings.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                         <label className="text-[11px] font-semibold text-slate-600">
                           Select building
                           <select
@@ -1636,9 +1705,11 @@ export default function HomeRoute() {
                         <button
                           type="button"
                           onClick={() =>
-                            setMapZoom((zoom) => Math.max(100, zoom - 25))
+                            setMapZoom((zoom) =>
+                              Math.max(MAP_ZOOM_MIN, zoom - MAP_ZOOM_STEP),
+                            )
                           }
-                          disabled={mapZoom <= 100}
+                          disabled={mapZoom <= MAP_ZOOM_MIN}
                           aria-label="Zoom out"
                           className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-bold text-slate-700 disabled:opacity-40"
                         >
@@ -1647,9 +1718,9 @@ export default function HomeRoute() {
                         <input
                           type="range"
                           aria-label="Map zoom"
-                          min="100"
-                          max="600"
-                          step="25"
+                          min={MAP_ZOOM_MIN}
+                          max={MAP_ZOOM_MAX}
+                          step={MAP_ZOOM_STEP}
                           value={mapZoom}
                           onChange={(event) =>
                             setMapZoom(Number(event.target.value))
@@ -1659,9 +1730,11 @@ export default function HomeRoute() {
                         <button
                           type="button"
                           onClick={() =>
-                            setMapZoom((zoom) => Math.min(600, zoom + 25))
+                            setMapZoom((zoom) =>
+                              Math.min(MAP_ZOOM_MAX, zoom + MAP_ZOOM_STEP),
+                            )
                           }
-                          disabled={mapZoom >= 600}
+                          disabled={mapZoom >= MAP_ZOOM_MAX}
                           aria-label="Zoom in"
                           className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-bold text-slate-700 disabled:opacity-40"
                         >
@@ -1673,7 +1746,7 @@ export default function HomeRoute() {
                         <button
                           type="button"
                           onClick={() => {
-                            setMapZoom(100);
+                            setMapZoom(MAP_ZOOM_MIN);
                             if (mapViewportRef.current) {
                               mapViewportRef.current.scrollLeft = 0;
                               mapViewportRef.current.scrollTop = 0;
@@ -1854,8 +1927,8 @@ export default function HomeRoute() {
                                         key={index}
                                         cx={point.x}
                                         cy={point.y}
-                                        r="0.65"
-                                        fill="white"
+                                        r="0.0975"
+                                        fill={colors.stroke}
                                         stroke={colors.stroke}
                                         strokeWidth="0.25"
                                         vectorEffect="non-scaling-stroke"
@@ -1904,7 +1977,7 @@ export default function HomeRoute() {
                                       width: `${Math.max(6, Math.min(36, (maxX - minX) * 0.82))}%`,
                                       maxHeight: `${Math.max(4, Math.min(18, (maxY - minY) * 0.72))}%`,
                                       color: colors.stroke,
-                                      fontSize: "clamp(8px, 0.95vw, 13px)",
+                                      fontSize: "clamp(20px, 2.375vw, 32.5px)",
                                       overflowWrap: "anywhere",
                                       textShadow:
                                         "0 0 2px rgba(255,255,255,0.95)",
@@ -1942,8 +2015,12 @@ export default function HomeRoute() {
                                     key={index}
                                     cx={point.x}
                                     cy={point.y}
-                                    r="0.7"
-                                    fill="white"
+                                    r="0.105"
+                                    fill={
+                                      polygonColors[
+                                        buildingStatus(selectedMapBuilding!)
+                                      ].stroke
+                                    }
                                     stroke={
                                       polygonColors[
                                         buildingStatus(selectedMapBuilding!)
